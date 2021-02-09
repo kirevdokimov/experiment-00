@@ -1,128 +1,57 @@
 import * as twgl from "./twgl-full.module.js"
+import * as dat from "./dat.gui.module.js"
+import { Plane } from "./plane.js";
+import { Cube } from "./cube.js";
 
 const canvas = document.querySelector("#glCanvas");
 const gl = canvas.getContext("webgl");
 
-const positions = [
-    1, 1, 1,
-    1, 1, -1,
-    1, -1, 1,
-    1, -1, -1,
-    -1, 1, 1,
-    -1, 1, -1,
-    - 1, -1, 1,
-    -1, -1, -1,
-];
+var gui = new dat.GUI({ name: 'gui' });
 
-const indices = [
-    // +x side
-    2, 0, 1,
-    2, 1, 3,
-    // -z side
-    3, 1, 5,
-    3, 5, 7,
-    // -x side
-    7, 5, 4,
-    7, 4, 6,
-    // +z side
-    6, 4, 0,
-    6, 0, 2,
-    // +y side
-    4, 5, 1,
-    4, 1, 0,
-    // -y side
-    7, 6, 2,
-    7, 2, 3,
-];
+const fieldOfView = 45 * Math.PI / 180;   // in radians
+const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+const zNear = 0.1;
+const zFar = 100.0;
+const projMatrix = twgl.m4.perspective(fieldOfView, aspect, zNear, zFar);
 
-const colors = [
-    0, 0, 0, 1,
-    1, 1, 1, 1,
-    1, 1, 0, 1,
-    0, 1, 0, 1,
-    0, 0, 1, 1,
-    0, 1, 1, 1,
-    1, 0, 1, 1,
-    1, 0, 0, 1,
-]
 
-var bufferArrays = {
-    aVertexPosition: { numComponents: 3, data: positions },
-    indices: { numComponents: 3, data: indices },
-    aVertexColor: { numComponents: 4, data: colors },
-}
-// createBuffer & bindBuffer & bufferData
-let buffersInfo = twgl.createBufferInfoFromArrays(gl, bufferArrays);
-
-// gl.createShader & shaderSource & shaderCompile for both vs and fs
-const programInfo = twgl.createProgramInfo(gl, [vert, frag]);
-
-let getPrespectiveMatrix = (translation) => {
-    const fieldOfView = 45 * Math.PI / 180;   // in radians
-    const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
-    const zNear = 0.1;
-    const zFar = 100.0;
-    const projectionMatrix = mat4.create();
-
-    mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
-    mat4.translate(projectionMatrix, projectionMatrix, translation);
-    return projectionMatrix;
-}
-
-let getModelMatrix = (rotationAmount) => {
-    const modelViewMatrix = mat4.create();
-
-    mat4.translate(modelViewMatrix, modelViewMatrix, [-0.0, 0.0, -6.0]);
-    mat4.rotate(modelViewMatrix, modelViewMatrix, rotationAmount, [0, 0, 1]);
-    mat4.rotate(modelViewMatrix, modelViewMatrix, rotationAmount * .7, [0, 1, 0]);
-
-    return modelViewMatrix;
-}
-
-console.log(programInfo);
-
-let rotationAmount = 0;
+let plane = new Plane(gl, gui);
+let drawCube = { value: true };
+gui.add(drawCube, 'value')
+let cube = new Cube(gl);
 
 let drawScene = (time, deltaTime) => {
-    gl.clearColor(0.4, 0.4, 0.4, 1.0);
+    gl.clearColor(0, 0, 0, 1.0);
     gl.clearDepth(1.0);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
 
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    const uniforms = {
-        uProjectionMatrix: getPrespectiveMatrix(translation),
-        uModelViewMatrix: getModelMatrix(rotationAmount)
-    }
+    let p = projMatrix;//twgl.m4.translate(cameraPerspective, twgl.v3.mulScalar(cameraPosition, -1))
+    let v = twgl.m4.lookAt(cameraPosition, [0, 0, 0], [0, 1, 0]);
+    // инверс для получение из lookat матрицы матрицу view (для камеры, которая инверсная).
+    // cameraPosition тоже учитывается при инвертировании, поэтому дополнительно перемещать не надо.
+    v = twgl.m4.inverse(v);
+    // let minusCameraPos = twgl.v3.mulScalar(cameraPosition, -1)
+    // p = twgl.m4.translate(p, minusCameraPos)
+    let pv = twgl.m4.multiply(p, v);
 
-    gl.useProgram(programInfo.program);
-    twgl.setBuffersAndAttributes(gl, programInfo, buffersInfo)
-    twgl.setUniforms(programInfo, uniforms)
-    twgl.drawBufferInfo(gl, buffersInfo)
+    plane.draw(time, deltaTime, pv)
+    if (drawCube.value) cube.draw(time, deltaTime, pv)
+
+    if (mouse.down) {
+        cameraPosition[0] -= mouse.dx / gl.canvas.width * 20;
+        cameraPosition[1] += mouse.dy / gl.canvas.width * 20;
+        folder.updateDisplay();
+    }
 }
 
-let updateScene = (time, deltaTime) => {
-
-    rotationAmount += deltaTime;
-    if (mouse.down) { 
-        translation[0] += mouse.dx / gl.canvas.width * 10;
-        translation[1] -= mouse.dy / gl.canvas.width * 10;
-     }
-}
-
-let translation = [0, 0, -6]
-
-window.addEventListener("keydown", (event) => {
-    // event.preventDefault();
-    switch (event.key) {
-        case "ArrowDown":
-            translation[2] -= 1;
-            break;
-        case "ArrowUp":
-            translation[2] += 1;
-            break;
-    }
+let cameraPosition = twgl.v3.create(2.7, 3.8, 4.2)
+let folder = gui.addFolder('cam position')
+folder.open();
+Object.keys(cameraPosition).forEach((key) => {
+    folder.add(cameraPosition, key, -10, 10, 0.1)
 })
 
 const clearMouse = {
@@ -164,7 +93,6 @@ function render(time) {
     let now = time * 0.001;
     const deltaTime = now - then;
     then = now;
-    updateScene(time, deltaTime);
     drawScene(time, deltaTime);
     mouse.dx = mouse.dy = 0;
 
